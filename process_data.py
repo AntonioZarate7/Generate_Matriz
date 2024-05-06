@@ -28,8 +28,8 @@ def fecha_siguiente_contacto():
     return fecha
 
 id_column = data.pop('ID')
-data.insert(0, 'TCID', id_column)
-data.insert(1, 'Nombre_foler_evidencia', 'NA')
+data.insert(0, 'TCID', 'NA')
+data.insert(1, 'Nombre_foler_evidencia', id_column)
 data.insert(2, '¿Crear_Oçportunidad?', 'Si')
 data.insert(3, '¿Crear_Cotizacion?', 'Si')
 data.insert(4, 'Nombre(s)', 'NA')
@@ -67,6 +67,9 @@ data.pop('Tipo de Póliza')
 inc_column = data.pop('Incremento GURA')
 data.insert(32, 'CHMQ', inc_column*100)
 data.insert(33, 'DeducibleUnico', 0)
+data.insert(34, 'Red_Copago', 0)
+data.insert(45, 'DP', 0)
+data.insert(51, 'CEDAP', 0)
 
 coverage_columns = ['CPF', 'CAE', 'CEC', 'CEE', 'CEDA', 'DENTAL', 'AMCD', 'CEDA PREM', 'CRFCA']
 
@@ -94,16 +97,41 @@ for col in fuma_columns:
     data[col] = 0  # Le asigna el valor 0 a todas las columnas
 
 
-""" Genera las columnas para los nombre de los asegurados """
+""" Genera las columnas para los nombres de los asegurados """
 for i in range(1, 12):
     data[f'Nombre_A{i}'] = ''
     data[f'Apellido_Paterno_A{i}'] = ''
     data[f'Apellido_Materno_A{i}'] = ''
 
 
+""" Genera las columnas para el genero de los asegurados """
+for i in range(1, 12):
+    data.insert(125 + i, f'Genero_A{i}', 0)
+
+
 """ Agrega las columnas de parentesco de los asegurados """
 for i in range(1, 12):
     data[f'Rol_A{i}'] = ''
+
+
+# Agregar columnas para cash
+data['cashTit'] = 'OFF'  # Columna para el titular
+for i in range(1, 12):
+    data[f'cash{i}'] = 'OFF'  # Columnas para asegurados
+
+
+# Agregar la columna PrimaTotalAnualizada al final del DataFrame
+data['PrimaTotalAnualizada'] = data['Pma + Der']
+
+# Insertar la columna Frecuencia en la penúltima posición
+data.insert(len(data.columns) - 1, 'Frecuencia', data['Forma de pago'].str.capitalize())
+
+
+data['CPF'] = data['CPF'].apply(lambda x: 1 if pd.notna(x) else 0)
+data['CAE'] = data['CAE'].apply(lambda x: 1 if pd.notna(x) else 0)
+data['CEC'] = data['CEC'].apply(lambda x: 1 if pd.notna(x) else 0)
+data['CEE'] = data['CEE'].apply(lambda x: 1 if pd.notna(x) else 0)
+data['CEDA'] = data['CEDA'].apply(lambda x: 1 if pd.notna(x) else 0)
 
 
 # Diccionario de codigos postales
@@ -200,17 +228,28 @@ def propagate_coverages(group):
         # elif getattr(row, 'Tipo de Deducible') == 'ANU':
             # group.at[group.index[0], 'DeducibleUnico'] = 0
 
+        # Asignar el valor de Red_Copago basado en la columna CRFCA
+        group.at[group.index[0], 'Red_Copago'] = 1 if pd.notna(getattr(row, 'CRFCA')) else 0
+
+        # Asignar el valor de DP basado en la columna DENTAL
+        group.at[group.index[0], 'DP'] = 1 if pd.notna(getattr(row, 'DENTAL')) else 0
+
+        # Asignar el valor de CEDA PREM basado en la columna DENTAL
+        group.at[group.index[0], 'CEDA PREM'] = 1 if pd.notna(getattr(row, 'CEDAP')) else 0
+
+        # Asignar el valor de cash basado en la columna AMCD
+        cash_value = 'ON' if pd.notna(getattr(row, 'AMCD')) else 'OFF'
+        if i == 0:
+            group.at[row.Index, 'cashTit'] = cash_value
+        else:
+            group.at[group.index[0], f'cash{i}'] = cash_value
+
     return group
 
 
 # Aplicar la funcion de consolidación
-grouped_data = data.groupby('TCID').apply(propagate_coverages)
+grouped_data = data.groupby('Nombre_foler_evidencia').apply(propagate_coverages)
 
-# Mostrar los resultados consolidados
-# print(grouped_data[['ID', 'Edad'] + [f'Fecha_Nacimiento_A{i}' for i in range(1, 12)]].head())
-
-# Mostrar los resultados consolidados
-# print(grouped_data.head())
 
 """ Se eliminan las columnas ya procesadas que ya no son necesarias """
 grouped_data.pop('Sexo')
@@ -219,6 +258,16 @@ grouped_data.pop('Riesgo')
 grouped_data.pop('Nombre ')
 grouped_data.pop('Parentesco')
 # grouped_data.pop('Tipo de Deducible')
+grouped_data.pop('CRFCA')
+grouped_data.pop('DENTAL')
+grouped_data.pop('CEDA PREM')
+grouped_data.pop('CETTE')
+grouped_data.pop('AMCD')
+grouped_data.pop('Pma + Der')
+grouped_data.pop('Forma de pago')
+
+# Eliminar duplicados basados solo en la columna ID
+grouped_data = grouped_data.drop_duplicates(subset=['Nombre_foler_evidencia'], keep='first')
 
 name_file = 'matriz.xlsx'
 
